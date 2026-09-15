@@ -370,12 +370,12 @@ function renderFormulaUse(f,detail){
   detail.innerHTML='<div class="small">填写数据即可直接使用这个公式</div>';
 
   for(let i=0;i<vars.length;i++){
-    var name=vars[i];
+    let name=vars[i];
     if(g.values[name]===undefined)g.values[name]="";
     var row=document.createElement("div");
     row.className="input-item";
     row.innerHTML="<div class='small'>"+name+"</div>";
-    var inp=document.createElement("input");
+    let inp=document.createElement("input");
     inp.type="number";
     inp.step="any";
     inp.value=g.values[name];
@@ -416,7 +416,7 @@ function renderInputs(){
   }
 
   for(let i=0;i<vars.length;i++){
-    var name=vars[i];
+    let name=vars[i];
     if(g.values[name]===undefined)g.values[name]="";
 
     var d=document.createElement("div");
@@ -472,7 +472,7 @@ function renderInputs(){
     top.appendChild(lab);
     top.appendChild(buttons);
 
-    var inp=document.createElement("input");
+    let inp=document.createElement("input");
     inp.type="number";
     inp.step="any";
     inp.value=g.values[name];
