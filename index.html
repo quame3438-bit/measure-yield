@@ -397,21 +397,21 @@ function renderFormulas(){
     return;
   }
   for(let i=0;i<g.formulas.length;i++){
-    var f=g.formulas[i];
-    var wrap=document.createElement("div");
+    let f=g.formulas[i];
+    let wrap=document.createElement("div");
     wrap.className="formula";
 
-    var head=document.createElement("div");
+    let head=document.createElement("div");
     head.className="formula-head";
 
-    var title=document.createElement("div");
+    let title=document.createElement("div");
     title.innerHTML="<strong>▶ "+f.name+"</strong><div class='small'>"+expression(f.tokens)+"</div>";
     title.style.cursor="pointer";
 
-    var btns=document.createElement("div");
+    let btns=document.createElement("div");
     btns.className="row";
 
-    var upBtn=document.createElement("button");
+    let upBtn=document.createElement("button");
     upBtn.textContent="上移";
     upBtn.disabled=(i===0);
     upBtn.onclick=function(e){
@@ -424,7 +424,7 @@ function renderFormulas(){
       renderAll();
     };
 
-    var downBtn=document.createElement("button");
+    let downBtn=document.createElement("button");
     downBtn.textContent="下移";
     downBtn.disabled=(i===g.formulas.length-1);
     downBtn.onclick=function(e){
@@ -437,7 +437,7 @@ function renderFormulas(){
       renderAll();
     };
 
-    var useBtn=document.createElement("button");
+    let useBtn=document.createElement("button");
     useBtn.textContent="用于新公式";
     useBtn.onclick=function(e){
       e.stopPropagation();
@@ -453,7 +453,7 @@ function renderFormulas(){
       renderBuilder();
     };
 
-    var editBtn=document.createElement("button");
+    let editBtn=document.createElement("button");
     editBtn.textContent="修改";
     editBtn.onclick=function(e){
       e.stopPropagation();
@@ -465,7 +465,7 @@ function renderFormulas(){
       document.getElementById("resultName").scrollIntoView({behavior:"smooth",block:"center"});
     };
 
-    var delBtn=document.createElement("button");
+    let delBtn=document.createElement("button");
     delBtn.textContent="删除";
     delBtn.className="danger";
     delBtn.onclick=function(e){
@@ -486,7 +486,7 @@ function renderFormulas(){
     head.appendChild(btns);
     wrap.appendChild(head);
 
-    var detail=document.createElement("div");
+    let detail=document.createElement("div");
     detail.className="hidden";
     detail.style.marginTop="10px";
     detail.style.borderTop="1px solid #e3e8e4";
