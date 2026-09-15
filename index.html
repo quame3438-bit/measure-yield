@@ -29,6 +29,32 @@ input,select{border:1px solid #d8e0d9;border-radius:9px;padding:10px;background:
 .result strong{font-size:22px}
 .hidden{display:none}
 @media(max-width:600px){.formula-head{align-items:flex-start}.row.mobile-stack{flex-direction:column;align-items:stretch}}
+
+.formula-group-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.formula-group-grid>*{width:100%;min-width:0;box-sizing:border-box}
+.identity-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.identity-grid input{width:100%;min-width:0;box-sizing:border-box}
+.formula-head{display:block}
+.formula-title-line{display:flex;align-items:center;gap:10px;min-width:0;cursor:pointer}
+.formula-title-line strong{flex:0 0 auto}
+.formula-expression{flex:1;min-width:0;white-space:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch}
+.formula-actions{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;margin-top:9px}
+.formula-actions button{width:100%;min-width:0;padding:8px 3px;font-size:13px}
+.saved-record{border:1px solid #dfe6e0;border-radius:10px;margin-bottom:8px;overflow:hidden;background:#fff}
+.saved-record-bar{display:flex;align-items:center;gap:8px;width:100%;padding:11px 10px;box-sizing:border-box}
+.saved-record-text{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.saved-record-arrow{flex:0 0 auto;border:0;background:transparent;font-size:18px;padding:4px 8px}
+.saved-record-detail{border-top:1px solid #e3e8e4;padding:10px}
+.saved-order-actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:10px}
+.saved-order-actions button{width:100%}
+@media(max-width:600px){
+  .formula-group-grid{gap:5px}
+  .formula-group-grid button,.formula-group-grid select{font-size:13px;padding:9px 4px}
+  .identity-grid{grid-template-columns:1fr}
+  .formula-actions{gap:4px}
+  .formula-actions button{font-size:12px;padding:8px 2px}
+}
+
 </style>
 </head>
 <body>
@@ -53,11 +79,20 @@ input,select{border:1px solid #d8e0d9;border-radius:9px;padding:10px;background:
 
 <div class="card">
 <h2>公式名称</h2>
-<div class="row mobile-stack">
-<select id="groupSelect" class="flex"></select>
+<div class="formula-group-grid">
+<select id="groupSelect" aria-label="公式名称"></select>
 <button id="addGroup">新增</button>
 <button id="renameGroup">重命名</button>
 <button id="deleteGroup" class="danger">删除</button>
+</div>
+</div>
+
+<div class="card">
+<h2>农户信息</h2>
+<div class="identity-grid">
+<input id="townshipInput" placeholder="乡镇">
+<input id="villageInput" placeholder="村">
+<input id="farmerInput" placeholder="农户">
 </div>
 </div>
 
@@ -110,6 +145,13 @@ input,select{border:1px solid #d8e0d9;border-radius:9px;padding:10px;background:
 <button id="calcNow" class="primary" type="button">立即计算</button>
 </div>
 <div id="results" style="margin-top:10px"></div>
+<button id="saveFarmerRecord" class="primary" type="button" style="width:100%;margin-top:12px">保存本次测产</button>
+</div>
+
+<div class="card">
+<h2>保存记录</h2>
+<div class="small" style="margin-bottom:8px">每次保存自动生成固定序号。调整显示顺序后，原序号不会改变。</div>
+<div id="savedRecords"></div>
 </div>
 </div>
 
@@ -122,11 +164,32 @@ var state;
 var builder=[];
 var editingFormulaId=null;
 
+function ensureStateExtras(s){
+  if(!s)return s;
+  if(!Array.isArray(s.records))s.records=[];
+  if(!s.nextRecordNo||s.nextRecordNo<1){
+    var mx=0;
+    for(var i=0;i<s.records.length;i++){
+      var n=Number(s.records[i].recordNo)||0;
+      if(n>mx)mx=n;
+    }
+    s.nextRecordNo=mx+1;
+  }
+  if(!s.formData)s.formData={township:"",village:"",farmer:""};
+  if(s.formData.township===undefined)s.formData.township="";
+  if(s.formData.village===undefined)s.formData.village="";
+  if(s.formData.farmer===undefined)s.formData.farmer="";
+  return s;
+}
+
 function uid(){return "id_"+Date.now()+"_"+Math.random().toString(36).slice(2,6)}
 function defaultState(){
   var gid=uid();
   return {
     active:gid,
+    records:[],
+    nextRecordNo:1,
+    formData:{township:"",village:"",farmer:""},
     groups:[{
       id:gid,
       name:"水稻测产",
@@ -153,6 +216,7 @@ function cloneData(x){
 }
 function hasUsefulData(x){
   if(!x||!x.groups||!x.groups.length)return false;
+  if(x.records&&x.records.length)return true;
   for(var i=0;i<x.groups.length;i++){
     var g=x.groups[i];
     if((g.formulas&&g.formulas.length)||(g.values&&Object.keys(g.values).some(function(k){
@@ -180,7 +244,7 @@ function load(){
     var raw=localStorage.getItem(KEY);
     if(raw){
       var x=JSON.parse(raw);
-      if(x&&x.groups&&x.groups.length)return x;
+      if(x&&x.groups&&x.groups.length)return ensureStateExtras(x);
     }
   }catch(e){}
 
@@ -194,11 +258,11 @@ function load(){
         old.changedAt=old.changedAt||Date.now();
         localStorage.setItem(KEY,JSON.stringify(old));
         pushBackup(old,"从旧版本迁移");
-        return old;
+        return ensureStateExtras(old);
       }
     }catch(e){}
   }
-  return defaultState();
+  return ensureStateExtras(defaultState());
 }
 function save(){
   try{
@@ -405,11 +469,11 @@ function renderFormulas(){
     head.className="formula-head";
 
     let title=document.createElement("div");
-    title.innerHTML="<strong>▶ "+f.name+"</strong><div class='small'>"+expression(f.tokens)+"</div>";
-    title.style.cursor="pointer";
+    title.className="formula-title-line";
+    title.innerHTML="<strong>▶ "+f.name+"</strong><div class='small formula-expression'>"+expression(f.tokens)+"</div>";
 
     let btns=document.createElement("div");
-    btns.className="row";
+    btns.className="formula-actions";
 
     let upBtn=document.createElement("button");
     upBtn.textContent="上移";
@@ -477,11 +541,11 @@ function renderFormulas(){
       }
     };
 
-    btns.appendChild(upBtn);
-    btns.appendChild(downBtn);
     btns.appendChild(useBtn);
     btns.appendChild(editBtn);
     btns.appendChild(delBtn);
+    btns.appendChild(upBtn);
+    btns.appendChild(downBtn);
     head.appendChild(title);
     head.appendChild(btns);
     wrap.appendChild(head);
@@ -780,12 +844,223 @@ function renderResults(){
     box.appendChild(d);
   }
 }
+
+function snapshotCurrentRecord(){
+  var g=current();
+  ensureStateExtras(state);
+
+  var township=document.getElementById("townshipInput").value.trim();
+  var village=document.getElementById("villageInput").value.trim();
+  var farmer=document.getElementById("farmerInput").value.trim();
+
+  if(!township){alert("请填写乡镇");return null;}
+  if(!village){alert("请填写村");return null;}
+  if(!farmer){alert("请填写农户");return null;}
+
+  var results=[];
+  for(var i=0;i<g.formulas.length;i++){
+    var f=g.formulas[i];
+    var problem=formulaProblem(f,g);
+    if(problem){
+      alert(f.name+"："+problem);
+      return null;
+    }
+    var v=evalFormula(f,g.values||{},{});
+    if(v===null){
+      alert(f.name+" 暂时无法计算，请检查数据。");
+      return null;
+    }
+    results.push({
+      formulaId:f.id,
+      name:f.name,
+      unit:f.unit||"",
+      value:v,
+      expression:expression(f.tokens)
+    });
+  }
+
+  var inputs={};
+  var vars=allVars();
+  for(var j=0;j<vars.length;j++){
+    var nm=cleanName(vars[j]);
+    inputs[nm]=getStoredValue(g,nm);
+  }
+
+  return {
+    id:uid(),
+    recordNo:state.nextRecordNo++,
+    groupId:g.id,
+    groupName:g.name,
+    township:township,
+    village:village,
+    farmer:farmer,
+    inputs:cloneData(inputs),
+    results:cloneData(results),
+    savedAt:Date.now()
+  };
+}
+
+function renderIdentity(){
+  ensureStateExtras(state);
+  var t=document.getElementById("townshipInput");
+  var v=document.getElementById("villageInput");
+  var f=document.getElementById("farmerInput");
+  if(!t||!v||!f)return;
+  t.value=state.formData.township||"";
+  v.value=state.formData.village||"";
+  f.value=state.formData.farmer||"";
+}
+
+function bindIdentityAutosave(){
+  var ids=[
+    ["townshipInput","township"],
+    ["villageInput","village"],
+    ["farmerInput","farmer"]
+  ];
+  for(var i=0;i<ids.length;i++){
+    (function(id,key){
+      var el=document.getElementById(id);
+      el.oninput=function(){
+        ensureStateExtras(state);
+        state.formData[key]=el.value;
+        save();
+      };
+    })(ids[i][0],ids[i][1]);
+  }
+}
+
+function renderSavedRecords(){
+  ensureStateExtras(state);
+  var box=document.getElementById("savedRecords");
+  if(!box)return;
+  box.innerHTML="";
+
+  if(!state.records.length){
+    box.innerHTML='<div class="small">还没有保存测产记录</div>';
+    return;
+  }
+
+  for(let i=0;i<state.records.length;i++){
+    let r=state.records[i];
+
+    let wrap=document.createElement("div");
+    wrap.className="saved-record";
+
+    let bar=document.createElement("div");
+    bar.className="saved-record-bar";
+
+    let txt=document.createElement("div");
+    txt.className="saved-record-text";
+    txt.innerHTML="<strong>"+r.recordNo+". "+(r.township||"")+" "+(r.village||"")+" "+(r.farmer||"")+"</strong>";
+
+    let arrow=document.createElement("button");
+    arrow.type="button";
+    arrow.className="saved-record-arrow";
+    arrow.textContent="▾";
+
+    let detail=document.createElement("div");
+    detail.className="saved-record-detail hidden";
+
+    function fillDetail(){
+      var html="";
+      html+="<div class='small'>公式名称："+(r.groupName||"")+"</div>";
+      html+="<div class='small'>保存时间："+new Date(r.savedAt).toLocaleString()+"</div>";
+
+      html+="<div style='margin-top:8px'><strong>输入数据</strong></div>";
+      var ik=Object.keys(r.inputs||{});
+      for(var a=0;a<ik.length;a++){
+        html+="<div class='small'>"+ik[a]+"："+(r.inputs[ik[a]]===undefined?"":r.inputs[ik[a]])+"</div>";
+      }
+
+      html+="<div style='margin-top:8px'><strong>计算结果</strong></div>";
+      for(var b=0;b<(r.results||[]).length;b++){
+        var rr=r.results[b];
+        var val=Number(rr.value);
+        html+="<div class='small'>"+rr.name+"："+(isFinite(val)?val.toFixed(2):"")+" "+(rr.unit||"")+"</div>";
+      }
+
+      detail.innerHTML=html;
+
+      let actions=document.createElement("div");
+      actions.className="saved-order-actions";
+
+      let up=document.createElement("button");
+      up.textContent="上移";
+      up.disabled=(i===0);
+      up.onclick=function(e){
+        e.stopPropagation();
+        if(i<=0)return;
+        var temp=state.records[i-1];
+        state.records[i-1]=state.records[i];
+        state.records[i]=temp;
+        save();
+        renderSavedRecords();
+      };
+
+      let down=document.createElement("button");
+      down.textContent="下移";
+      down.disabled=(i===state.records.length-1);
+      down.onclick=function(e){
+        e.stopPropagation();
+        if(i>=state.records.length-1)return;
+        var temp=state.records[i+1];
+        state.records[i+1]=state.records[i];
+        state.records[i]=temp;
+        save();
+        renderSavedRecords();
+      };
+
+      let del=document.createElement("button");
+      del.textContent="删除";
+      del.className="danger";
+      del.onclick=function(e){
+        e.stopPropagation();
+        if(!confirm("删除第 "+r.recordNo+" 号 "+r.farmer+" 的保存记录吗？"))return;
+        state.records.splice(i,1);
+        save();
+        renderSavedRecords();
+      };
+
+      actions.appendChild(up);
+      actions.appendChild(down);
+      actions.appendChild(del);
+      detail.appendChild(actions);
+    }
+
+    function toggle(){
+      if(detail.classList.contains("hidden")){
+        fillDetail();
+        detail.classList.remove("hidden");
+        arrow.textContent="▴";
+      }else{
+        detail.classList.add("hidden");
+        arrow.textContent="▾";
+      }
+    }
+
+    bar.onclick=toggle;
+    arrow.onclick=function(e){
+      e.stopPropagation();
+      toggle();
+    };
+
+    bar.appendChild(txt);
+    bar.appendChild(arrow);
+    wrap.appendChild(bar);
+    wrap.appendChild(detail);
+    box.appendChild(wrap);
+  }
+}
+
 function renderAll(){
+  ensureStateExtras(state);
   renderGroups();
+  renderIdentity();
   renderBuilder();
   renderFormulas();
   renderInputs();
   renderResults();
+  renderSavedRecords();
 }
 
 document.getElementById("groupSelect").onchange=function(){
@@ -995,9 +1270,22 @@ document.getElementById("clearBuilder").onclick=function(){
 document.getElementById("calcNow").onclick=function(){
   renderResults();
 };
+document.getElementById("saveFarmerRecord").onclick=function(){
+  var rec=snapshotCurrentRecord();
+  if(!rec)return;
+  state.records.push(rec);
+  state.formData.township=rec.township;
+  state.formData.village=rec.village;
+  state.formData.farmer=rec.farmer;
+  save();
+  renderSavedRecords();
+  alert("已保存为第 "+rec.recordNo+" 号测产记录。");
+};
 
 state=load();
+ensureStateExtras(state);
 renderAll();
+bindIdentityAutosave();
 </script>
 
 
@@ -1009,7 +1297,7 @@ renderAll();
   </div>
   <input id="excelFileInput" type="file" accept=".xlsx,.xls" class="hidden">
   <div class="small" style="margin-top:8px">
-    导出内容包括：公式汇总、输入数据、计算结果；重新导入本网页导出的 Excel，可恢复公式、顺序和已填写数据。
+    导出内容包括：测产记录、公式汇总、输入数据、计算结果；重新导入本网页导出的 Excel，可恢复公式、农户记录、顺序和已填写数据。
   </div>
 </div>
 
@@ -1042,6 +1330,64 @@ function exportExcel(){
     var formulaRows=[["公式组","顺序","结果名称","单位","公式"]];
     var inputRows=[["公式组","输入项","当前数值"]];
     var resultRows=[["公式组","结果名称","单位","计算结果"]];
+
+    ensureStateExtras(state);
+    var savedInputNames=[];
+    var savedResultNames=[];
+    var seenSavedInputs={};
+    var seenSavedResults={};
+
+    for(var sri=0;sri<state.records.length;sri++){
+      var sr=state.records[sri];
+      var sk=Object.keys(sr.inputs||{});
+      for(var ski=0;ski<sk.length;ski++){
+        if(!seenSavedInputs[sk[ski]]){
+          seenSavedInputs[sk[ski]]=true;
+          savedInputNames.push(sk[ski]);
+        }
+      }
+      for(var srj=0;srj<(sr.results||[]).length;srj++){
+        var srres=sr.results[srj];
+        var rk=srres.name+(srres.unit?"（"+srres.unit+"）":"");
+        if(!seenSavedResults[rk]){
+          seenSavedResults[rk]=true;
+          savedResultNames.push(rk);
+        }
+      }
+    }
+
+    var recordHeader=["序号","乡镇","村","农户","公式名称","保存时间"]
+      .concat(savedInputNames)
+      .concat(savedResultNames);
+    var recordRows=[recordHeader];
+
+    for(var srr=0;srr<state.records.length;srr++){
+      var rec=state.records[srr];
+      var row=[
+        rec.recordNo,
+        rec.township||"",
+        rec.village||"",
+        rec.farmer||"",
+        rec.groupName||"",
+        new Date(rec.savedAt).toLocaleString()
+      ];
+
+      for(var sii=0;sii<savedInputNames.length;sii++){
+        var inv=savedInputNames[sii];
+        row.push(rec.inputs&&rec.inputs[inv]!==undefined?rec.inputs[inv]:"");
+      }
+
+      var resultMap={};
+      for(var sj=0;sj<(rec.results||[]).length;sj++){
+        var res=rec.results[sj];
+        var key=res.name+(res.unit?"（"+res.unit+"）":"");
+        resultMap[key]=res.value;
+      }
+      for(var sri2=0;sri2<savedResultNames.length;sri2++){
+        row.push(resultMap[savedResultNames[sri2]]!==undefined?resultMap[savedResultNames[sri2]]:"");
+      }
+      recordRows.push(row);
+    }
 
     for(var gi=0;gi<state.groups.length;gi++){
       var g=state.groups[gi];
@@ -1097,6 +1443,12 @@ function exportExcel(){
     XLSX.utils.book_append_sheet(wb,ws1,"公式汇总");
     XLSX.utils.book_append_sheet(wb,ws2,"输入数据");
     XLSX.utils.book_append_sheet(wb,ws3,"计算结果");
+
+    var wsRecords=XLSX.utils.aoa_to_sheet(recordRows);
+    wsRecords["!cols"]=recordHeader.map(function(h){
+      return {wch:Math.max(12,Math.min(28,String(h).length*2+4))};
+    });
+    XLSX.utils.book_append_sheet(wb,wsRecords,"测产记录");
 
     var sysRows=[
       ["请勿删除此表，本表用于重新导入网页时恢复完整数据"],
@@ -1160,7 +1512,7 @@ async function importExcelFile(file){
     if(!confirm("导入后会用 Excel 中的数据替换当前网页数据。\\n当前数据会先自动备份。\\n\\n确定继续吗？"))return;
 
     pushBackup(state,"导入 Excel 前自动备份");
-    state=imported;
+    state=ensureStateExtras(imported);
     if(!state.active||!state.groups.some(function(g){return g.id===state.active;})){
       state.active=state.groups[0].id;
     }
@@ -1248,7 +1600,7 @@ async function applyRemoteState(remote){
   applyingRemote=true;
   try{
     if(state&&state.groups&&state.groups.length)pushBackup(state,"云端覆盖前自动备份");
-    state=remote;
+    state=ensureStateExtras(remote);
     if(!state.active)state.active=state.groups[0].id;
     localStorage.setItem(KEY,JSON.stringify(state));
     renderAll();
