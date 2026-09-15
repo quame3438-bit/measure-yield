@@ -1,0 +1,728 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>测产公式设计器</title>
+<style>
+body{margin:0;background:#f5f7f4;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;color:#172019}
+.wrap{max-width:820px;margin:auto;padding:14px}
+.card{background:#fff;border:1px solid #dde5de;border-radius:14px;padding:14px;margin-bottom:12px}
+h1{font-size:22px;margin:4px 0 14px}
+h2{font-size:17px;margin:0 0 10px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+button,input,select{font:inherit}
+button{border:1px solid #d8e0d9;background:#fff;border-radius:9px;padding:9px 11px}
+button.primary{background:#2f6f45;color:#fff;border-color:#2f6f45}
+button.danger{color:#b33b3b}
+input,select{border:1px solid #d8e0d9;border-radius:9px;padding:10px;background:#fff}
+.flex{flex:1;min-width:0}
+.ops{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:10px 0}
+.ops button{font-size:22px;font-weight:700}
+.tokens{display:flex;flex-wrap:wrap;gap:6px;min-height:42px;padding:10px;border:1px dashed #bdcabc;border-radius:10px}
+.token{background:#eaf3ed;border:1px solid #cfdfd4;border-radius:8px;padding:7px 9px}
+.formula{border:1px solid #dfe6e0;border-radius:10px;padding:10px;margin-bottom:8px}
+.formula-head{display:flex;justify-content:space-between;gap:8px;align-items:center}
+.small{font-size:12px;color:#6d776f;line-height:1.5}
+.input-item{border:1px solid #dfe6e0;border-radius:10px;padding:10px;margin-bottom:8px}
+.result{background:#eaf3ed;border:1px solid #cadfd0;border-radius:10px;padding:10px;margin-top:8px}
+.result strong{font-size:22px}
+.hidden{display:none}
+@media(max-width:600px){.formula-head{align-items:flex-start}.row.mobile-stack{flex-direction:column;align-items:stretch}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>测产公式设计器</h1>
+
+<div class="card">
+<h2>☁️ 云同步</h2>
+<form id="cloudLogin" class="row mobile-stack">
+<input id="cloudEmail" class="flex" type="email" placeholder="邮箱" autocomplete="username">
+<input id="cloudPassword" class="flex" type="password" placeholder="密码" autocomplete="current-password">
+<button class="primary" type="submit">登录</button>
+</form>
+<div id="cloudAccount" class="row hidden">
+<span id="cloudUserText" class="small"></span>
+<button id="syncNow" type="button">立即同步</button>
+<button id="logoutCloud" type="button">退出登录</button>
+</div>
+<div id="cloudStatus" class="small" style="margin-top:8px">未登录，当前内容保存在本机。</div>
+</div>
+
+<div class="card">
+<h2>公式名称</h2>
+<div class="row mobile-stack">
+<select id="groupSelect" class="flex"></select>
+<button id="addGroup">新增</button>
+<button id="renameGroup">重命名</button>
+<button id="deleteGroup" class="danger">删除</button>
+</div>
+</div>
+
+<div class="card">
+<h2>新增公式</h2>
+<div class="small">输入项目名称或固定数字，再用＋－×÷连接。已建立的公式也可以点“用于新公式”直接调用。</div>
+
+<div class="row mobile-stack" style="margin-top:10px">
+<input id="resultName" class="flex" placeholder="结果名称，例如：潮粮亩产">
+<input id="resultUnit" placeholder="单位，例如：公斤/亩">
+</div>
+
+<div class="row mobile-stack" style="margin-top:10px">
+<input id="itemName" class="flex" placeholder="项目名称，例如：穴数/平方米">
+<input id="fixedNumber" placeholder="固定数字，例如：667" inputmode="decimal">
+<button id="addPart">添加</button>
+</div>
+
+<div class="ops">
+<button data-op="+">＋</button>
+<button data-op="-">－</button>
+<button data-op="*">×</button>
+<button data-op="/">÷</button>
+</div>
+
+<div id="tokens" class="tokens"></div>
+
+<div class="row" style="margin-top:10px">
+<button id="finishFormula" class="primary">完成并生成</button>
+<button id="clearBuilder">清空当前</button>
+</div>
+</div>
+
+<div class="card">
+<h2>已建立公式</h2>
+<div id="formulaList"></div>
+</div>
+
+<div class="card">
+<h2>输入数据</h2>
+<div id="inputs"></div>
+</div>
+
+<div class="card">
+<h2>计算结果</h2>
+<div id="results"></div>
+</div>
+</div>
+
+<script>
+var KEY="yield_builder_simple_v1";
+var state;
+var builder=[];
+
+function uid(){return "id_"+Date.now()+"_"+Math.random().toString(36).slice(2,6)}
+function defaultState(){
+  var gid=uid();
+  return {
+    active:gid,
+    groups:[{
+      id:gid,
+      name:"水稻测产",
+      formulas:[],
+      values:{}
+    }]
+  };
+}
+function load(){
+  try{
+    var x=JSON.parse(localStorage.getItem(KEY));
+    if(x&&x.groups&&x.groups.length)return x;
+  }catch(e){}
+  return defaultState();
+}
+function save(){
+  state.changedAt=Date.now();
+  localStorage.setItem(KEY,JSON.stringify(state));
+  if(typeof scheduleCloudSync==="function")scheduleCloudSync();
+}
+function current(){
+  for(var i=0;i<state.groups.length;i++){
+    if(state.groups[i].id===state.active)return state.groups[i];
+  }
+  state.active=state.groups[0].id;
+  return state.groups[0];
+}
+function textOp(v){return v==="*"?"×":v==="/"?"÷":v}
+function renderGroups(){
+  var s=document.getElementById("groupSelect");
+  s.innerHTML="";
+  for(var i=0;i<state.groups.length;i++){
+    var o=document.createElement("option");
+    o.value=state.groups[i].id;
+    o.textContent=state.groups[i].name;
+    if(o.value===state.active)o.selected=true;
+    s.appendChild(o);
+  }
+}
+function renderBuilder(){
+  var box=document.getElementById("tokens");
+  box.innerHTML="";
+  if(!builder.length){
+    box.innerHTML='<span class="small">还没有内容</span>';
+    return;
+  }
+  for(let i=0;i<builder.length;i++){
+    var t=builder[i];
+    var d=document.createElement("div");
+    d.className="token";
+    d.textContent=t.type==="var"||t.type==="ref"?t.name:t.type==="num"?t.value:textOp(t.value);
+    d.onclick=function(){builder.splice(i,1);renderBuilder()};
+    box.appendChild(d);
+  }
+}
+function expression(tokens){
+  var a=[];
+  for(var i=0;i<tokens.length;i++){
+    var t=tokens[i];
+    if(t.type==="var"||t.type==="ref")a.push("["+t.name+"]");
+    else if(t.type==="num")a.push(String(t.value));
+    else a.push(textOp(t.value));
+  }
+  return a.join(" ");
+}
+function findFormula(name){
+  var fs=current().formulas;
+  for(var i=0;i<fs.length;i++)if(fs[i].name===name)return fs[i];
+  return null;
+}
+function evalFormula(f,ctx,seen){
+  if(!f)return null;
+  seen=seen||{};
+  if(seen[f.name])return null;
+  seen[f.name]=true;
+
+  var parts=[];
+  for(var i=0;i<f.tokens.length;i++){
+    var t=f.tokens[i];
+
+    if(t.type==="num"){
+      var nv=Number(t.value);
+      if(!isFinite(nv))return null;
+      parts.push(nv);
+    }else if(t.type==="var"){
+      if(ctx[t.name]===undefined||ctx[t.name]===null||String(ctx[t.name]).trim()==="")return null;
+      var vv=Number(ctx[t.name]);
+      if(!isFinite(vv))return null;
+      parts.push(vv);
+    }else if(t.type==="ref"){
+      var rf=findFormula(t.name);
+      var rv=evalFormula(rf,ctx,Object.assign({},seen));
+      if(rv===null||!isFinite(rv))return null;
+      parts.push(rv);
+    }else if(t.type==="op"){
+      parts.push(t.value);
+    }
+  }
+
+  if(!parts.length||typeof parts[0]!=="number"||typeof parts[parts.length-1]!=="number")return null;
+
+  // First pass: multiplication and division.
+  var stage=[];
+  for(var p=0;p<parts.length;p++){
+    var item=parts[p];
+    if(item==="*"||item==="/"){
+      if(!stage.length||p+1>=parts.length)return null;
+      var left=stage.pop();
+      var right=parts[++p];
+      if(typeof left!=="number"||typeof right!=="number")return null;
+      if(item==="/"&&right===0)return null;
+      stage.push(item==="*"?left*right:left/right);
+    }else{
+      stage.push(item);
+    }
+  }
+
+  // Second pass: addition and subtraction.
+  if(typeof stage[0]!=="number")return null;
+  var result=stage[0];
+  for(var s=1;s<stage.length;s+=2){
+    var op=stage[s], val=stage[s+1];
+    if((op!=="+"&&op!=="-")||typeof val!=="number")return null;
+    result=op==="+"?result+val:result-val;
+  }
+  return isFinite(result)?result:null;
+}
+function allVarsForFormula(f,out,seen){
+  out=out||[];
+  seen=seen||{};
+  if(!f||seen[f.name])return out;
+  seen[f.name]=true;
+  for(var i=0;i<f.tokens.length;i++){
+    var t=f.tokens[i];
+    if(t.type==="var"&&out.indexOf(t.name)<0)out.push(t.name);
+    if(t.type==="ref")allVarsForFormula(findFormula(t.name),out,seen);
+  }
+  return out;
+}
+function allVars(){
+  var out=[];
+  var fs=current().formulas;
+  for(var i=0;i<fs.length;i++)allVarsForFormula(fs[i],out,{});
+  return out;
+}
+function renderFormulas(){
+  var box=document.getElementById("formulaList");
+  box.innerHTML="";
+  var g=current();
+  if(!g.formulas.length){
+    box.innerHTML='<div class="small">还没有建立公式</div>';
+    return;
+  }
+  for(let i=0;i<g.formulas.length;i++){
+    var f=g.formulas[i];
+    var wrap=document.createElement("div");
+    wrap.className="formula";
+
+    var head=document.createElement("div");
+    head.className="formula-head";
+
+    var title=document.createElement("div");
+    title.innerHTML="<strong>▶ "+f.name+"</strong><div class='small'>"+expression(f.tokens)+"</div>";
+    title.style.cursor="pointer";
+
+    var btns=document.createElement("div");
+    btns.className="row";
+
+    var useBtn=document.createElement("button");
+    useBtn.textContent="用于新公式";
+    useBtn.onclick=function(e){
+      e.stopPropagation();
+      if(builder.length&&builder[builder.length-1].type!=="op"){
+        alert("请先选择＋－×÷");
+        return;
+      }
+      builder.push({type:"ref",name:f.name});
+      renderBuilder();
+    };
+
+    var editBtn=document.createElement("button");
+    editBtn.textContent="修改";
+    editBtn.onclick=function(e){
+      e.stopPropagation();
+      document.getElementById("resultName").value=f.name;
+      document.getElementById("resultUnit").value=f.unit||"";
+      builder=JSON.parse(JSON.stringify(f.tokens));
+      g.formulas.splice(i,1);
+      save();
+      renderAll();
+    };
+
+    var delBtn=document.createElement("button");
+    delBtn.textContent="删除";
+    delBtn.className="danger";
+    delBtn.onclick=function(e){
+      e.stopPropagation();
+      if(confirm("删除这个公式吗？")){
+        g.formulas.splice(i,1);
+        save();
+        renderAll();
+      }
+    };
+
+    btns.appendChild(useBtn);
+    btns.appendChild(editBtn);
+    btns.appendChild(delBtn);
+    head.appendChild(title);
+    head.appendChild(btns);
+    wrap.appendChild(head);
+
+    var detail=document.createElement("div");
+    detail.className="hidden";
+    detail.style.marginTop="10px";
+    detail.style.borderTop="1px solid #e3e8e4";
+    detail.style.paddingTop="10px";
+
+    title.onclick=function(){
+      if(detail.className==="hidden"){
+        detail.className="";
+        title.querySelector("strong").textContent="▼ "+f.name;
+        renderFormulaUse(f,detail);
+      }else{
+        detail.className="hidden";
+        title.querySelector("strong").textContent="▶ "+f.name;
+      }
+    };
+
+    wrap.appendChild(detail);
+    box.appendChild(wrap);
+  }
+}
+function renderFormulaUse(f,detail){
+  var g=current();
+  var vars=allVarsForFormula(f,[],{});
+  detail.innerHTML='<div class="small">填写数据即可直接使用这个公式</div>';
+
+  for(let i=0;i<vars.length;i++){
+    var name=vars[i];
+    if(g.values[name]===undefined)g.values[name]="";
+    var row=document.createElement("div");
+    row.className="input-item";
+    row.innerHTML="<div class='small'>"+name+"</div>";
+    var inp=document.createElement("input");
+    inp.type="number";
+    inp.step="any";
+    inp.value=g.values[name];
+    inp.style.width="100%";
+    inp.style.marginTop="6px";
+    inp.oninput=function(){
+      g.values[name]=inp.value;
+      save();
+      update();
+      renderInputs();
+      renderResults();
+    };
+    row.appendChild(inp);
+    detail.appendChild(row);
+  }
+
+  var res=document.createElement("div");
+  res.className="result";
+  detail.appendChild(res);
+
+  function update(){
+    var v=evalFormula(f,g.values,{});
+    res.innerHTML="<div class='small'>计算结果</div><strong>"+(v===null?"待输入":v.toFixed(2))+"</strong> "+(f.unit||"")+(v===null?"<div class='small'>请把上面的数据填写完整</div>":"");
+  }
+  update();
+}
+function renderInputs(){
+  var box=document.getElementById("inputs");
+  box.innerHTML="";
+  var g=current();
+  var vars=allVars();
+
+  if(!vars.length){
+    box.innerHTML='<div class="small">建立公式后，这里会自动出现输入项</div>';
+    return;
+  }
+
+  for(let i=0;i<vars.length;i++){
+    var name=vars[i];
+    if(g.values[name]===undefined)g.values[name]="";
+
+    var d=document.createElement("div");
+    d.className="input-item";
+
+    var top=document.createElement("div");
+    top.className="row";
+    top.style.justifyContent="space-between";
+
+    var lab=document.createElement("strong");
+    lab.textContent=name;
+
+    var buttons=document.createElement("div");
+    buttons.className="row";
+
+    var edit=document.createElement("button");
+    edit.textContent="修改";
+    edit.onclick=function(){
+      var n=prompt("修改输入栏名称：",name);
+      if(!n)return;
+      n=n.trim();
+      if(!n)return;
+
+      for(var fi=0;fi<g.formulas.length;fi++){
+        for(var ti=0;ti<g.formulas[fi].tokens.length;ti++){
+          var t=g.formulas[fi].tokens[ti];
+          if(t.type==="var"&&t.name===name)t.name=n;
+        }
+      }
+      g.values[n]=g.values[name];
+      delete g.values[name];
+      save();
+      renderAll();
+    };
+
+    var del=document.createElement("button");
+    del.textContent="删除";
+    del.className="danger";
+    del.onclick=function(){
+      if(!confirm("删除这个输入项吗？"))return;
+      for(var fi=0;fi<g.formulas.length;fi++){
+        g.formulas[fi].tokens=g.formulas[fi].tokens.filter(function(t){
+          return !(t.type==="var"&&t.name===name);
+        });
+      }
+      delete g.values[name];
+      save();
+      renderAll();
+    };
+
+    buttons.appendChild(edit);
+    buttons.appendChild(del);
+    top.appendChild(lab);
+    top.appendChild(buttons);
+
+    var inp=document.createElement("input");
+    inp.type="number";
+    inp.step="any";
+    inp.value=g.values[name];
+    inp.style.width="100%";
+    inp.style.marginTop="8px";
+    inp.oninput=function(){
+      g.values[name]=inp.value;
+      save();
+      renderResults();
+    };
+
+    d.appendChild(top);
+    d.appendChild(inp);
+    box.appendChild(d);
+  }
+}
+function renderResults(){
+  var box=document.getElementById("results");
+  box.innerHTML="";
+  var g=current();
+  if(!g.formulas.length){
+    box.innerHTML='<div class="small">暂无结果</div>';
+    return;
+  }
+  for(var i=0;i<g.formulas.length;i++){
+    var f=g.formulas[i];
+    var v=evalFormula(f,g.values,{});
+    var d=document.createElement("div");
+    d.className="result";
+    d.innerHTML="<div class='small'>"+f.name+"</div><strong>"+(v===null?"待输入":v.toFixed(2))+"</strong> "+(f.unit||"")+(v===null?"<div class='small'>请填写这个公式需要的输入数据</div>":"");
+    box.appendChild(d);
+  }
+}
+function renderAll(){
+  renderGroups();
+  renderBuilder();
+  renderFormulas();
+  renderInputs();
+  renderResults();
+}
+
+document.getElementById("groupSelect").onchange=function(){
+  state.active=this.value;
+  save();
+  renderAll();
+};
+document.getElementById("addGroup").onclick=function(){
+  var n=prompt("请输入公式名称：","新公式");
+  if(!n)return;
+  var g={id:uid(),name:n.trim(),formulas:[],values:{}};
+  state.groups.push(g);
+  state.active=g.id;
+  save();
+  renderAll();
+};
+document.getElementById("renameGroup").onclick=function(){
+  var g=current();
+  var n=prompt("重命名：",g.name);
+  if(!n)return;
+  g.name=n.trim();
+  save();
+  renderAll();
+};
+document.getElementById("deleteGroup").onclick=function(){
+  if(state.groups.length<=1){alert("至少保留一个公式名称");return}
+  if(!confirm("确定删除当前公式名称吗？"))return;
+  var id=state.active;
+  state.groups=state.groups.filter(function(g){return g.id!==id});
+  state.active=state.groups[0].id;
+  save();
+  renderAll();
+};
+document.getElementById("addPart").onclick=function(){
+  var name=document.getElementById("itemName").value.trim();
+  var num=document.getElementById("fixedNumber").value.trim();
+  if(name&&num){alert("项目名称和固定数字二选一");return}
+  if(name){
+    builder.push({type:"var",name:name});
+    document.getElementById("itemName").value="";
+  }else if(num!==""&&!isNaN(Number(num))){
+    builder.push({type:"num",value:Number(num)});
+    document.getElementById("fixedNumber").value="";
+  }else{
+    alert("请输入项目名称或固定数字");
+    return;
+  }
+  renderBuilder();
+};
+var ops=document.querySelectorAll("[data-op]");
+for(var oi=0;oi<ops.length;oi++){
+  ops[oi].onclick=function(){
+    if(!builder.length||builder[builder.length-1].type==="op"){alert("请先添加项目或数字");return}
+    builder.push({type:"op",value:this.getAttribute("data-op")});
+    renderBuilder();
+  };
+}
+document.getElementById("finishFormula").onclick=function(){
+  var name=document.getElementById("resultName").value.trim();
+  var unit=document.getElementById("resultUnit").value.trim();
+  if(!name){alert("请填写结果名称");return}
+  if(!builder.length){alert("请先建立公式");return}
+  if(builder[builder.length-1].type==="op"){alert("公式最后不能是运算符");return}
+
+  current().formulas.push({
+    id:uid(),
+    name:name,
+    unit:unit,
+    tokens:JSON.parse(JSON.stringify(builder))
+  });
+  builder=[];
+  document.getElementById("resultName").value="";
+  document.getElementById("resultUnit").value="";
+  save();
+  renderAll();
+};
+document.getElementById("clearBuilder").onclick=function(){
+  builder=[];
+  renderBuilder();
+};
+
+state=load();
+renderAll();
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/dist/umd/supabase.min.js"></script>
+<script>
+var CLOUD_URL="https://braarnzywbodyfdclodc.supabase.co";
+var CLOUD_KEY="sb_publishable_JecnrG-198PERwUD5lFhaQ_wc0vV4Lj";
+var CLOUD_TABLE="crop_yield_cloud_v1";
+var cloudClient=null;
+var cloudUser=null;
+var cloudTimer=null;
+var cloudBusy=false;
+var applyingRemote=false;
+
+function setCloudStatus(t){
+  var el=document.getElementById("cloudStatus");
+  if(el)el.textContent=t;
+}
+function updateCloudUI(){
+  var login=document.getElementById("cloudLogin");
+  var account=document.getElementById("cloudAccount");
+  var userText=document.getElementById("cloudUserText");
+  if(cloudUser){
+    login.classList.add("hidden");
+    account.classList.remove("hidden");
+    userText.textContent="✅ 已登录："+(cloudUser.email||"云账号");
+  }else{
+    login.classList.remove("hidden");
+    account.classList.add("hidden");
+    userText.textContent="";
+  }
+}
+function scheduleCloudSync(){
+  if(applyingRemote||!cloudUser||!cloudClient)return;
+  clearTimeout(cloudTimer);
+  cloudTimer=setTimeout(function(){syncCloud(false)},1000);
+}
+async function fetchRemote(){
+  var r=await cloudClient.from(CLOUD_TABLE)
+    .select("payload,updated_at")
+    .eq("user_id",cloudUser.id)
+    .maybeSingle();
+  if(r.error)throw r.error;
+  return r.data;
+}
+async function uploadRemote(){
+  var payload={stableDesigner:state};
+  var r=await cloudClient.from(CLOUD_TABLE).upsert({
+    user_id:cloudUser.id,
+    payload:payload,
+    updated_at:new Date().toISOString()
+  },{onConflict:"user_id"});
+  if(r.error)throw r.error;
+}
+async function applyRemoteState(remote){
+  if(!remote||!remote.groups||!remote.groups.length)return false;
+  applyingRemote=true;
+  try{
+    state=remote;
+    if(!state.active)state.active=state.groups[0].id;
+    localStorage.setItem(KEY,JSON.stringify(state));
+    renderAll();
+  }finally{
+    applyingRemote=false;
+  }
+  return true;
+}
+async function syncCloud(manual){
+  if(!cloudUser||!cloudClient||cloudBusy)return;
+  cloudBusy=true;
+  try{
+    setCloudStatus("正在同步…");
+    var row=await fetchRemote();
+    var remote=row&&row.payload?row.payload.stableDesigner:null;
+    var remoteAt=row?Date.parse(row.updated_at||0)||0:0;
+    var localAt=Number(state.changedAt)||0;
+
+    if(!remote){
+      await uploadRemote();
+    }else if(remoteAt>localAt+1000){
+      await applyRemoteState(remote);
+    }else{
+      await uploadRemote();
+    }
+    setCloudStatus("✅ 已同步到云端");
+  }catch(e){
+    console.error(e);
+    setCloudStatus("⚠️ 云同步失败："+(e&&e.message?e.message:"请检查网络"));
+  }finally{
+    cloudBusy=false;
+  }
+}
+
+document.getElementById("cloudLogin").onsubmit=async function(e){
+  e.preventDefault();
+  if(!cloudClient){setCloudStatus("云同步组件未加载");return;}
+  var email=document.getElementById("cloudEmail").value.trim();
+  var password=document.getElementById("cloudPassword").value;
+  if(!email||!password){setCloudStatus("请输入邮箱和密码");return;}
+  setCloudStatus("正在登录…");
+  var r=await cloudClient.auth.signInWithPassword({email:email,password:password});
+  if(r.error){setCloudStatus("登录失败："+r.error.message);return;}
+  cloudUser=r.data.session.user;
+  document.getElementById("cloudPassword").value="";
+  updateCloudUI();
+  await syncCloud(true);
+};
+document.getElementById("syncNow").onclick=function(){syncCloud(true)};
+document.getElementById("logoutCloud").onclick=async function(){
+  if(cloudClient)await cloudClient.auth.signOut();
+  cloudUser=null;
+  updateCloudUI();
+  setCloudStatus("已退出登录，内容仍保存在本机。");
+};
+
+(async function(){
+  try{
+    if(!window.supabase||!window.supabase.createClient){
+      setCloudStatus("云同步组件未加载，本机功能仍可使用。");
+      return;
+    }
+    cloudClient=window.supabase.createClient(CLOUD_URL,CLOUD_KEY,{
+      auth:{
+        storageKey:"crop-yield-stable-auth-v1",
+        persistSession:true,
+        autoRefreshToken:true,
+        detectSessionInUrl:false
+      }
+    });
+    var r=await cloudClient.auth.getSession();
+    if(r.error)throw r.error;
+    cloudUser=r.data.session?r.data.session.user:null;
+    updateCloudUI();
+    if(cloudUser)await syncCloud(true);
+
+    cloudClient.auth.onAuthStateChange(function(event,session){
+      if(event==="SIGNED_OUT"){
+        cloudUser=null;
+        updateCloudUI();
+      }
+    });
+  }catch(e){
+    console.error(e);
+    setCloudStatus("云同步初始化失败，本机功能仍可使用。");
+  }
+})();
+</script>
+
+</body>
+</html>
