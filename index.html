@@ -1,0 +1,523 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>作物测产公式计算器</title>
+<style>
+:root{
+  --bg:#f5f7f4; --card:#ffffff; --text:#172019; --sub:#6b766d; --line:#dde5de;
+  --accent:#2f6f45; --accent2:#e8f2eb; --danger:#b33b3b; --shadow:0 8px 24px rgba(20,50,30,.08);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
+button,input,select,textarea{font:inherit}
+.app{max-width:980px;margin:auto;padding:16px 14px 44px}
+.header{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:14px}
+h1{font-size:22px;margin:0}
+.small{font-size:12px;color:var(--sub)}
+.tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px}
+.tab{border:1px solid var(--line);background:var(--card);padding:11px;border-radius:12px;font-weight:700;cursor:pointer}
+.tab.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+.toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.btn{border:1px solid var(--line);background:#fff;padding:9px 12px;border-radius:10px;cursor:pointer}
+.btn.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+.btn.danger{color:var(--danger)}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px;box-shadow:var(--shadow)}
+.card h2{font-size:17px;margin:0 0 10px}
+.card h3{font-size:14px;margin:14px 0 8px}
+.field{display:grid;grid-template-columns:1.2fr 1fr auto;gap:8px;align-items:end;margin-bottom:9px}
+label{font-size:13px;color:var(--sub);display:block;margin-bottom:5px}
+input,select,textarea{width:100%;border:1px solid var(--line);background:#fff;border-radius:9px;padding:9px 10px;outline:none}
+input:focus,textarea:focus{border-color:#8bb39a;box-shadow:0 0 0 3px rgba(47,111,69,.08)}
+.unit{padding-bottom:10px;color:var(--sub);font-size:13px;min-width:38px}
+.result{background:var(--accent2);border:1px solid #cce0d2;border-radius:13px;padding:12px;margin-top:9px}
+.result .name{font-size:13px;color:#40604a}
+.result .value{font-size:25px;font-weight:800;margin-top:3px;word-break:break-all}
+.result .formula{font-size:11px;color:var(--sub);margin-top:5px;word-break:break-all}
+.note{white-space:pre-wrap;line-height:1.6;color:#3d493f}
+.edit-only{display:none}
+body.editing .edit-only{display:block}
+body.editing .view-only{display:none}
+.item-editor{border:1px dashed #bcc9bf;border-radius:12px;padding:10px;margin-bottom:10px;background:#fbfcfb}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px}
+.row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px}
+.help{font-size:12px;line-height:1.6;color:var(--sub);background:#fafafa;border-radius:10px;padding:10px}
+.code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.footer-tools{margin-top:12px;display:flex;gap:8px;flex-wrap:wrap}
+
+.cloud-card{margin-bottom:12px}
+.cloud-login{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.cloud-login input{flex:1 1 180px;min-width:0}
+.cloud-account{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px}
+.cloud-status{font-size:13px;line-height:1.55;color:var(--sub);margin-top:8px}
+.cloud-status.ok{color:#2f6f45;font-weight:600}
+.cloud-status.warn{color:#9b5a16}
+[hidden]{display:none!important}
+@media(max-width:720px){
+ .grid{grid-template-columns:1fr}
+ .header{align-items:flex-start;flex-direction:column}
+ .field{grid-template-columns:1fr 1fr auto}
+ .row,.row3{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="header">
+    <div>
+      <h1>作物测产公式计算器</h1>
+      <div class="small">水稻 · 玉米 · 大豆｜公式、文字、变量都可以自己改</div>
+    </div>
+    <button id="editBtn" class="btn primary">编辑公式</button>
+  </div>
+
+  <div class="tabs">
+    <button class="tab active" data-crop="rice">水稻</button>
+    <button class="tab" data-crop="corn">玉米</button>
+    <button class="tab" data-crop="soy">大豆</button>
+  </div>
+
+  <div class="card cloud-card" id="cloudPanel">
+    <h2>☁️ 云同步</h2>
+    <form id="cloudLoginForm" class="cloud-login">
+      <input id="cloudEmail" type="email" autocomplete="username" placeholder="邮箱" required>
+      <input id="cloudPassword" type="password" autocomplete="current-password" placeholder="密码" required>
+      <button class="btn primary" type="submit">登录</button>
+    </form>
+    <div id="cloudAccount" class="cloud-account" hidden>
+      <span id="cloudAccountText" class="small"></span>
+      <button id="cloudSyncBtn" class="btn" type="button">立即同步</button>
+      <button id="cloudLogoutBtn" class="btn" type="button">退出登录</button>
+    </div>
+    <div id="cloudStatus" class="cloud-status">未登录，当前内容保存在本机。</div>
+  </div>
+
+  <div class="toolbar view-only">
+    <button id="clearValues" class="btn">清空本次数据</button>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>输入数据</h2>
+      <div id="fieldsView" class="view-only"></div>
+
+      <div class="edit-only">
+        <div class="help">
+          每个输入项都有一个“变量名”，公式里用变量名参与计算。<br>
+          例如：<span class="code">hills * grams * area / 1000</span><br>
+          支持：+ - * / ( )，百分数请用输入值除以100，例如 <span class="code">(1-water/100)</span>。
+        </div>
+        <h3>输入项设置</h3>
+        <div id="fieldsEdit"></div>
+        <button id="addField" class="btn">＋新增输入项</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>计算结果</h2>
+      <div id="resultsView" class="view-only"></div>
+
+      <div class="edit-only">
+        <h3>结果公式设置</h3>
+        <div id="resultsEdit"></div>
+        <button id="addResult" class="btn">＋新增结果公式</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:12px">
+    <h2>说明文字</h2>
+    <div id="noteView" class="note view-only"></div>
+    <textarea id="noteEdit" class="edit-only" rows="7" placeholder="这里可以随意输入说明、公式解释、注意事项……"></textarea>
+  </div>
+
+  <div class="card edit-only" style="margin-top:12px">
+    <h2>配置管理</h2>
+    <div class="help">修改完成后点“保存并退出”。配置会自动保存在当前浏览器。也可以导出 JSON 备份，换设备时再导入。</div>
+    <div class="footer-tools">
+      <button id="saveBtn" class="btn primary">保存并退出</button>
+      <button id="resetCrop" class="btn danger">恢复当前作物默认</button>
+      <button id="exportCfg" class="btn">导出配置</button>
+      <label class="btn" style="cursor:pointer">导入配置<input id="importCfg" type="file" accept=".json,application/json" hidden></label>
+    </div>
+  </div>
+</div>
+
+<script>
+const STORAGE_KEY = 'crop_yield_formula_builder_v1';
+
+const defaults = {
+  rice: {
+    title:'水稻',
+    fields:[
+      {label:'穴数 / 每平方米', key:'hills', unit:'穴/㎡', value:''},
+      {label:'平均克数 / 穴', key:'grams', unit:'克/穴', value:''},
+      {label:'亩面积', key:'area', unit:'㎡/亩', value:'667'},
+      {label:'实测水分', key:'water', unit:'%', value:''},
+      {label:'标准水分', key:'stdWater', unit:'%', value:'14.5'},
+      {label:'机器收割损耗率', key:'loss', unit:'%', value:'5'}
+    ],
+    results:[
+      {label:'潮粮折合亩产', formula:'hills * grams * area / 1000', unit:'公斤/亩', decimals:2},
+      {label:'干粮（标准水分）', formula:'(hills * grams * area / 1000) * (1-water/100) / (1-stdWater/100)', unit:'公斤/亩', decimals:2},
+      {label:'扣除机器收割损耗后', formula:'((hills * grams * area / 1000) * (1-water/100) / (1-stdWater/100)) * (1-loss/100)', unit:'公斤/亩', decimals:2}
+    ],
+    note:'默认水稻逻辑：\\n1. 潮粮 = 穴数/㎡ × 克数/穴 × 667㎡/亩 ÷ 1000\\n2. 干粮 = 潮粮 ×（1－实测水分）÷（1－标准水分14.5%）\\n3. 去损失率 = 干粮 ×（1－机器收割损耗率）\\n\\n机器收割损耗率可自己填写，例如 5%～15%。'
+  },
+  corn: {
+    title:'玉米',
+    fields:[
+      {label:'株数 / 每平方米', key:'plants', unit:'株/㎡', value:''},
+      {label:'平均克数 / 株', key:'grams', unit:'克/株', value:''},
+      {label:'亩面积', key:'area', unit:'㎡/亩', value:'667'},
+      {label:'实测水分', key:'water', unit:'%', value:''},
+      {label:'标准水分', key:'stdWater', unit:'%', value:''},
+      {label:'损耗率', key:'loss', unit:'%', value:'5'}
+    ],
+    results:[
+      {label:'潮粮折合亩产', formula:'plants * grams * area / 1000', unit:'公斤/亩', decimals:2},
+      {label:'标准水分折算', formula:'(plants * grams * area / 1000) * (1-water/100) / (1-stdWater/100)', unit:'公斤/亩', decimals:2},
+      {label:'扣除损耗后', formula:'((plants * grams * area / 1000) * (1-water/100) / (1-stdWater/100)) * (1-loss/100)', unit:'公斤/亩', decimals:2}
+    ],
+    note:'玉米这里先放了一个通用“株数 × 单株籽粒重”的模板。标准水分、损耗率和公式都可以按你的测产办法自行修改。'
+  },
+  soy: {
+    title:'大豆',
+    fields:[
+      {label:'株数 / 每平方米', key:'plants', unit:'株/㎡', value:''},
+      {label:'平均克数 / 株', key:'grams', unit:'克/株', value:''},
+      {label:'亩面积', key:'area', unit:'㎡/亩', value:'667'},
+      {label:'实测水分', key:'water', unit:'%', value:''},
+      {label:'标准水分', key:'stdWater', unit:'%', value:''},
+      {label:'损耗率', key:'loss', unit:'%', value:'5'}
+    ],
+    results:[
+      {label:'潮粮折合亩产', formula:'plants * grams * area / 1000', unit:'公斤/亩', decimals:2},
+      {label:'标准水分折算', formula:'(plants * grams * area / 1000) * (1-water/100) / (1-stdWater/100)', unit:'公斤/亩', decimals:2},
+      {label:'扣除损耗后', formula:'((plants * grams * area / 1000) * (1-water/100) / (1-stdWater/100)) * (1-loss/100)', unit:'公斤/亩', decimals:2}
+    ],
+    note:'大豆这里先放了一个通用“株数 × 单株籽粒重”的模板。你可以改成株数、荚数、粒数、百粒重等自己的测产逻辑。'
+  }
+};
+
+let state = loadState();
+let crop = 'rice';
+let editing = false;
+
+function clone(o){ return JSON.parse(JSON.stringify(o)); }
+function loadState(){
+  try{
+    const x = JSON.parse(localStorage.getItem(STORAGE_KEY));
+    if(x && x.rice && x.corn && x.soy) return x;
+  }catch(e){}
+  return clone(defaults);
+}
+let applyingCloudState = false;
+const LOCAL_CHANGED_KEY = 'crop_yield_formula_builder_changed_at_v1';
+function persist(){
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  if(!applyingCloudState){
+    localStorage.setItem(LOCAL_CHANGED_KEY, String(Date.now()));
+    if(typeof scheduleCloudSync==='function') scheduleCloudSync();
+  }
+}
+
+function sanitizeKey(s){
+  s=(s||'').trim().replace(/[^\w]/g,'_');
+  if(!s) s='var'+Date.now();
+  if(/^\d/.test(s)) s='v_'+s;
+  return s;
+}
+function current(){ return state[crop]; }
+
+function render(){
+  document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.crop===crop));
+  document.body.classList.toggle('editing',editing);
+  document.getElementById('editBtn').textContent = editing ? '退出编辑' : '编辑公式';
+
+  renderFieldsView();
+  renderResultsView();
+  renderEditors();
+  document.getElementById('noteView').textContent=current().note||'';
+  document.getElementById('noteEdit').value=current().note||'';
+}
+function renderFieldsView(){
+  const box=document.getElementById('fieldsView'); box.innerHTML='';
+  current().fields.forEach((f,i)=>{
+    const wrap=document.createElement('div'); wrap.className='field';
+    wrap.innerHTML=`<div><label>${esc(f.label)}</label><input type="number" inputmode="decimal" step="any" data-i="${i}" value="${escAttr(f.value??'')}"></div><div></div><div class="unit">${esc(f.unit||'')}</div>`;
+    const inp=wrap.querySelector('input');
+    inp.addEventListener('input',e=>{ f.value=e.target.value; persist(); renderResultsView(); });
+    box.appendChild(wrap);
+  });
+}
+function getVars(){
+  const vars={};
+  current().fields.forEach(f=>vars[f.key]=parseFloat(f.value));
+  return vars;
+}
+function evalFormula(formula, vars){
+  const keys=Object.keys(vars);
+  if(!formula || /[^0-9A-Za-z_+\-*/().\s]/.test(formula)) throw new Error('公式含不支持字符');
+  const fn=new Function(...keys, '"use strict"; return ('+formula+');');
+  const val=fn(...keys.map(k=>vars[k]));
+  if(!Number.isFinite(val)) throw new Error('缺少数据或除数为0');
+  return val;
+}
+function renderResultsView(){
+  const box=document.getElementById('resultsView'); box.innerHTML='';
+  const vars=getVars();
+  current().results.forEach(r=>{
+    let text='—', err='';
+    try{
+      const v=evalFormula(r.formula,vars);
+      text=v.toFixed(Number.isFinite(+r.decimals)?+r.decimals:2);
+    }catch(e){ err=e.message; }
+    const d=document.createElement('div'); d.className='result';
+    d.innerHTML=`<div class="name">${esc(r.label)}</div><div class="value">${text} <span style="font-size:14px;font-weight:600">${esc(r.unit||'')}</span></div><div class="formula">${err?('提示：'+esc(err)):('公式：'+esc(r.formula))}</div>`;
+    box.appendChild(d);
+  });
+}
+function renderEditors(){
+  const fbox=document.getElementById('fieldsEdit'); fbox.innerHTML='';
+  current().fields.forEach((f,i)=>{
+    const d=document.createElement('div'); d.className='item-editor';
+    d.innerHTML=`
+      <div class="row3">
+        <div><label>显示文字</label><input data-p="label" value="${escAttr(f.label)}"></div>
+        <div><label>变量名</label><input class="code" data-p="key" value="${escAttr(f.key)}"></div>
+        <div><label>单位</label><input data-p="unit" value="${escAttr(f.unit||'')}"></div>
+      </div>
+      <div class="row">
+        <div><label>默认值</label><input data-p="value" value="${escAttr(f.value??'')}"></div>
+        <div style="display:flex;align-items:end"><button class="btn danger del">删除此输入项</button></div>
+      </div>`;
+    d.querySelectorAll('input').forEach(inp=>inp.addEventListener('input',e=>{
+      const p=e.target.dataset.p;
+      f[p]=p==='key'?sanitizeKey(e.target.value):e.target.value;
+    }));
+    d.querySelector('.del').onclick=()=>{ current().fields.splice(i,1); renderEditors(); };
+    fbox.appendChild(d);
+  });
+
+  const rbox=document.getElementById('resultsEdit'); rbox.innerHTML='';
+  current().results.forEach((r,i)=>{
+    const d=document.createElement('div'); d.className='item-editor';
+    d.innerHTML=`
+      <div class="row3">
+        <div><label>结果名称</label><input data-p="label" value="${escAttr(r.label)}"></div>
+        <div><label>单位</label><input data-p="unit" value="${escAttr(r.unit||'')}"></div>
+        <div><label>小数位</label><input type="number" min="0" max="6" data-p="decimals" value="${escAttr(r.decimals??2)}"></div>
+      </div>
+      <div><label>公式</label><textarea class="code" data-p="formula" rows="3">${esc(r.formula)}</textarea></div>
+      <div style="margin-top:8px"><button class="btn danger del">删除此结果</button></div>`;
+    d.querySelectorAll('input,textarea').forEach(inp=>inp.addEventListener('input',e=>{
+      const p=e.target.dataset.p; r[p]=p==='decimals'?Number(e.target.value):e.target.value;
+    }));
+    d.querySelector('.del').onclick=()=>{ current().results.splice(i,1); renderEditors(); };
+    rbox.appendChild(d);
+  });
+}
+function esc(s){ return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function escAttr(s){ return esc(s).replace(/'/g,'&#39;'); }
+
+document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{
+  if(editing){ current().note=document.getElementById('noteEdit').value; persist(); }
+  crop=b.dataset.crop; render();
+});
+document.getElementById('editBtn').onclick=()=>{
+  if(editing){
+    current().note=document.getElementById('noteEdit').value;
+    persist();
+  }
+  editing=!editing; render();
+};
+document.getElementById('saveBtn').onclick=()=>{
+  current().note=document.getElementById('noteEdit').value;
+  persist(); editing=false; render();
+};
+document.getElementById('addField').onclick=()=>{
+  current().fields.push({label:'新输入项',key:'var'+(current().fields.length+1),unit:'',value:''}); renderEditors();
+};
+document.getElementById('addResult').onclick=()=>{
+  current().results.push({label:'新计算结果',formula:'0',unit:'',decimals:2}); renderEditors();
+};
+document.getElementById('clearValues').onclick=()=>{
+  current().fields.forEach(f=>{ if(!['area','stdWater','loss'].includes(f.key)) f.value=''; });
+  persist(); render();
+};
+document.getElementById('resetCrop').onclick=()=>{
+  if(confirm('确定恢复当前作物默认设置吗？当前作物自定义公式会被覆盖。')){
+    state[crop]=clone(defaults[crop]); persist(); render();
+  }
+};
+document.getElementById('exportCfg').onclick=()=>{
+  current().note=document.getElementById('noteEdit').value; persist();
+  const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+  a.download='测产公式配置备份.json'; a.click(); URL.revokeObjectURL(a.href);
+};
+document.getElementById('importCfg').onchange=async e=>{
+  const file=e.target.files[0]; if(!file)return;
+  try{
+    const obj=JSON.parse(await file.text());
+    if(!obj.rice||!obj.corn||!obj.soy) throw new Error();
+    state=obj; persist(); render(); alert('导入成功');
+  }catch(err){ alert('配置文件格式不正确'); }
+  e.target.value='';
+};
+document.getElementById('noteEdit').addEventListener('input',e=>current().note=e.target.value);
+
+render();
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/dist/umd/supabase.min.js"></script>
+<script>
+const CLOUD_PROJECT_URL="https://braarnzywbodyfdclodc.supabase.co";
+const CLOUD_PUBLISHABLE_KEY="sb_publishable_JecnrG-198PERwUD5lFhaQ_wc0vV4Lj";
+const CLOUD_TABLE="crop_yield_cloud_v1";
+const CLOUD_AUTH_STORAGE_KEY="crop-yield-cloud-auth-v1";
+let cloudClient=null, cloudUser=null, cloudTimer=null, cloudBusy=false, cloudAgain=false;
+
+function setCloudStatus(msg,type=""){
+  const el=document.getElementById("cloudStatus");
+  if(!el)return;
+  el.textContent=msg;
+  el.className="cloud-status"+(type?(" "+type):"");
+}
+function updateCloudUI(){
+  const login=document.getElementById("cloudLoginForm");
+  const account=document.getElementById("cloudAccount");
+  const accountText=document.getElementById("cloudAccountText");
+  if(cloudUser){
+    login.hidden=true;
+    account.hidden=false;
+    accountText.textContent="✅ 已登录："+(cloudUser.email||"云账号");
+  }else{
+    login.hidden=false;
+    account.hidden=true;
+    accountText.textContent="";
+  }
+}
+function scheduleCloudSync(){
+  if(!cloudUser||!cloudClient)return;
+  clearTimeout(cloudTimer);
+  if(cloudBusy){cloudAgain=true;return;}
+  setCloudStatus("本机已保存，等待同步…","warn");
+  cloudTimer=setTimeout(()=>syncCloud("auto"),900);
+}
+async function fetchCloudRow(){
+  const {data,error}=await cloudClient.from(CLOUD_TABLE)
+    .select("payload,updated_at").eq("user_id",cloudUser.id).maybeSingle();
+  if(error)throw error;
+  return data;
+}
+async function uploadCloud(){
+  const {error}=await cloudClient.from(CLOUD_TABLE).upsert({
+    user_id:cloudUser.id,
+    payload:JSON.parse(JSON.stringify(state)),
+    updated_at:new Date().toISOString()
+  },{onConflict:"user_id"});
+  if(error)throw error;
+}
+async function applyRemote(payload,updatedAt){
+  if(!payload||!payload.rice||!payload.corn||!payload.soy)throw new Error("云端数据格式不正确");
+  applyingCloudState=true;
+  try{
+    state=payload;
+    localStorage.setItem(STORAGE_KEY,JSON.stringify(state));
+    localStorage.setItem(LOCAL_CHANGED_KEY,String(Date.parse(updatedAt)||Date.now()));
+    render();
+  }finally{applyingCloudState=false;}
+}
+async function syncCloud(mode="auto"){
+  if(!cloudUser||!cloudClient)return;
+  if(cloudBusy){cloudAgain=true;return;}
+  cloudBusy=true;
+  try{
+    setCloudStatus("正在同步云端…","warn");
+    const row=await fetchCloudRow();
+    const localAt=Number(localStorage.getItem(LOCAL_CHANGED_KEY))||0;
+    const remoteAt=row?(Date.parse(row.updated_at)||0):0;
+    if(!row) await uploadCloud();
+    else if(mode==="manual"){
+      if(remoteAt>localAt+1000) await applyRemote(row.payload,row.updated_at);
+      else await uploadCloud();
+    }else{
+      if(localAt>remoteAt+1000) await uploadCloud();
+      else if(remoteAt>localAt+1000) await applyRemote(row.payload,row.updated_at);
+    }
+    setCloudStatus("✅ 已同步到云端 · "+new Date().toLocaleTimeString("zh-CN",{hour:"2-digit",minute:"2-digit"}),"ok");
+  }catch(err){
+    console.error(err);
+    setCloudStatus("⚠️ 云同步失败："+(err?.message||"请检查网络"),"warn");
+  }finally{
+    cloudBusy=false;
+    if(cloudAgain){cloudAgain=false;scheduleCloudSync();}
+  }
+}
+async function startCloudUser(user){
+  cloudUser=user||null;
+  updateCloudUI();
+  if(!cloudUser){setCloudStatus("未登录，当前内容保存在本机。");return;}
+  try{
+    const row=await fetchCloudRow();
+    const localAt=Number(localStorage.getItem(LOCAL_CHANGED_KEY))||0;
+    const remoteAt=row?(Date.parse(row.updated_at)||0):0;
+    if(!row) await uploadCloud();
+    else if(remoteAt>localAt+1000) await applyRemote(row.payload,row.updated_at);
+    else if(localAt>remoteAt+1000) await uploadCloud();
+    setCloudStatus("✅ 已登录并同步","ok");
+  }catch(err){
+    console.error(err);
+    setCloudStatus("登录成功，但同步失败："+(err?.message||"请检查网络"),"warn");
+  }
+}
+
+document.getElementById("cloudLoginForm").addEventListener("submit",async e=>{
+  e.preventDefault();
+  if(!cloudClient){setCloudStatus("云同步组件未加载，请联网刷新","warn");return;}
+  const email=document.getElementById("cloudEmail").value.trim();
+  const password=document.getElementById("cloudPassword").value;
+  if(!email||!password){setCloudStatus("请输入邮箱和密码","warn");return;}
+  setCloudStatus("正在登录…","warn");
+  const {data,error}=await cloudClient.auth.signInWithPassword({email,password});
+  if(error){setCloudStatus("登录失败："+error.message,"warn");return;}
+  document.getElementById("cloudPassword").value="";
+  await startCloudUser(data.session?.user||null);
+});
+document.getElementById("cloudSyncBtn").addEventListener("click",()=>syncCloud("manual"));
+document.getElementById("cloudLogoutBtn").addEventListener("click",async()=>{
+  if(!cloudClient)return;
+  await cloudClient.auth.signOut();
+  cloudUser=null;updateCloudUI();
+  setCloudStatus("已退出登录；内容仍保存在本机。","warn");
+});
+
+(async()=>{
+  if(!window.supabase||!window.supabase.createClient){
+    setCloudStatus("云同步组件加载失败，请检查网络","warn");return;
+  }
+  cloudClient=window.supabase.createClient(CLOUD_PROJECT_URL,CLOUD_PUBLISHABLE_KEY,{
+    auth:{storageKey:CLOUD_AUTH_STORAGE_KEY,persistSession:true,autoRefreshToken:true,detectSessionInUrl:false}
+  });
+  const {data,error}=await cloudClient.auth.getSession();
+  if(error)setCloudStatus("读取登录状态失败："+error.message,"warn");
+  if(data?.session?.user)await startCloudUser(data.session.user);
+  else updateCloudUI();
+
+  cloudClient.auth.onAuthStateChange((event,session)=>{
+    if(event==="SIGNED_OUT"){
+      cloudUser=null;
+      setTimeout(()=>{updateCloudUI();setCloudStatus("已退出登录；内容仍保存在本机。","warn");},0);
+    }
+  });
+  window.addEventListener("online",()=>{if(cloudUser)syncCloud("auto");});
+  document.addEventListener("visibilitychange",()=>{if(!document.hidden&&cloudUser)syncCloud("auto");});
+})();
+</script>
+
+</body>
+</html>
