@@ -2887,6 +2887,68 @@ document.getElementById("excelFileInput").onchange=function(){
 };
 </script>
 
+<div class="card" style="margin-bottom:24px">
+  <h2>备份</h2>
+  <div class="row">
+    <button id="exportBackupBtn" class="primary" type="button">导出备份</button>
+    <button id="importBackupBtn" type="button">导入备份</button>
+  </div>
+  <input id="backupFileInput" type="file" accept=".json,application/json" class="hidden">
+  <div class="small" style="margin-top:8px">导出当前公式、输入数据、测产记录及本机自动备份；导入后恢复到本机。</div>
+</div>
+
+<script>
+function backupFileName(){
+  var d=new Date(), pad=function(n){return String(n).padStart(2,"0")};
+  return "测产公式备份_"+d.getFullYear()+pad(d.getMonth()+1)+pad(d.getDate())+"_"+pad(d.getHours())+pad(d.getMinutes())+pad(d.getSeconds())+".json";
+}
+function exportBackupFile(){
+  try{
+    save();
+    var pack={
+      app:"测产公式设计器",
+      version:1,
+      exportedAt:new Date().toISOString(),
+      data:JSON.parse(localStorage.getItem(KEY)||"null"),
+      backups:JSON.parse(localStorage.getItem(BACKUP_KEY)||"[]")
+    };
+    var blob=new Blob([JSON.stringify(pack,null,2)],{type:"application/json;charset=utf-8"});
+    var url=URL.createObjectURL(blob), a=document.createElement("a");
+    a.href=url; a.download=backupFileName();
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function(){URL.revokeObjectURL(url)},1000);
+  }catch(e){alert("导出备份失败："+(e&&e.message?e.message:"未知错误"));}
+}
+function importBackupFile(file){
+  if(!file)return;
+  var reader=new FileReader();
+  reader.onload=function(){
+    try{
+      var pack=JSON.parse(String(reader.result||""));
+      if(!pack||pack.app!=="测产公式设计器"||!pack.data||!Array.isArray(pack.data.groups))throw new Error("不是有效的测产公式备份文件");
+      if(!confirm("导入备份会替换当前本机数据。\n导入前会先保存当前数据，是否继续？"))return;
+      if(state&&state.groups&&state.groups.length)pushBackup(state,"导入备份前自动备份");
+      var currentBackups=[];
+      try{currentBackups=JSON.parse(localStorage.getItem(BACKUP_KEY)||"[]")}catch(e){}
+      state=ensureStateExtras(pack.data);
+      renumberRecords();
+      state.changedAt=Date.now();
+      localStorage.setItem(KEY,JSON.stringify(state));
+      var imported=Array.isArray(pack.backups)?pack.backups:[];
+      localStorage.setItem(BACKUP_KEY,JSON.stringify(imported.concat(currentBackups).slice(0,MAX_BACKUPS)));
+      renderAll();
+      if(typeof scheduleCloudSync==="function")scheduleCloudSync();
+      alert("备份导入成功。数据已恢复。 ");
+    }catch(e){alert("导入备份失败："+(e&&e.message?e.message:"文件格式错误"));}
+    finally{document.getElementById("backupFileInput").value="";}
+  };
+  reader.readAsText(file,"utf-8");
+}
+document.getElementById("exportBackupBtn").onclick=exportBackupFile;
+document.getElementById("importBackupBtn").onclick=function(){document.getElementById("backupFileInput").click()};
+document.getElementById("backupFileInput").onchange=function(){importBackupFile(this.files&&this.files[0])};
+</script>
+
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/dist/umd/supabase.min.js"></script>
 <script>
 var CLOUD_URL="https://braarnzywbodyfdclodc.supabase.co";
@@ -2958,6 +3020,44 @@ async function applyRemoteState(remote){
   }
   return true;
 }
+function hasUsefulLocalData(){
+  return !!(state && state.groups && state.groups.length);
+}
+async function safeLoginSync(){
+  if(!cloudUser||!cloudClient||cloudBusy)return;
+  cloudBusy=true;
+  try{
+    setCloudStatus("正在检查本机和云端数据…");
+    var row=await fetchRemote();
+    var remote=row&&row.payload?(row.payload.state||null):null;
+    var hasRemote=!!(remote&&remote.groups&&remote.groups.length);
+    var hasLocal=hasUsefulLocalData();
+
+    if(!hasRemote && hasLocal){
+      await uploadRemote();
+      setCloudStatus("✅ 云端为空，已保留本机数据并上传云端");
+      return;
+    }
+    if(hasRemote && !hasLocal){
+      await applyRemoteState(remote);
+      setCloudStatus("✅ 本机为空，已从云端恢复数据");
+      return;
+    }
+    if(hasRemote && hasLocal){
+      setCloudStatus("✅ 本机和云端都有数据，已保留本机；需要时请手动选择“下载云端”或“上传本机”");
+      return;
+    }
+    setCloudStatus("已登录；本机和云端目前都没有数据。");
+  }catch(e){
+    console.error(e);
+    var msg=(e&&e.message)?e.message:"请检查网络";
+    var code=(e&&e.code)?(" ["+e.code+"]"):"";
+    setCloudStatus("⚠️ 云同步检查失败："+msg+code);
+  }finally{
+    cloudBusy=false;
+  }
+}
+
 async function syncCloud(manual,preferRemote){
   if(!cloudUser||!cloudClient||cloudBusy)return;
   cloudBusy=true;
@@ -3000,9 +3100,9 @@ document.getElementById("cloudLogin").onsubmit=async function(e){
   cloudUser=r.data.session.user;
   document.getElementById("cloudPassword").value="";
   updateCloudUI();
-  await syncCloud(true,true);
+  await safeLoginSync();
 };
-document.getElementById("syncNow").onclick=function(){syncCloud(true,true)};
+document.getElementById("syncNow").onclick=function(){safeLoginSync()};
 document.getElementById("downloadCloud").onclick=async function(){
   if(!cloudUser){setCloudStatus("请先登录云端账号");return;}
   if(!confirm("下载云端数据到本机？\n当前本机数据会先自动备份。"))return;
@@ -3061,7 +3161,7 @@ document.getElementById("logoutCloud").onclick=async function(){
     if(r.error)throw r.error;
     cloudUser=r.data.session?r.data.session.user:null;
     updateCloudUI();
-    if(cloudUser)await syncCloud(true,true);
+    if(cloudUser)await safeLoginSync();
 
     cloudClient.auth.onAuthStateChange(function(event,session){
       if(event==="SIGNED_OUT"){
