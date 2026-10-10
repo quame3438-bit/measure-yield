@@ -151,6 +151,7 @@ input,select{border:1px solid #d8e0d9;border-radius:9px;padding:10px;background:
 <input id="villageInput" placeholder="村">
 <input id="farmerInput" placeholder="农户">
 </div>
+<div class="row" style="margin-top:10px"><button id="newFarmer" type="button">新增农户</button></div>
 </div>
 
 <div class="card">
@@ -201,6 +202,10 @@ input,select{border:1px solid #d8e0d9;border-radius:9px;padding:10px;background:
 <h2>公式数据组</h2>
 <div class="small" style="margin-bottom:8px">每个公式、对应输入数据和计算结果为一组。</div>
 <div id="groupedDataList"></div>
+<div class="row" style="margin-top:12px;display:grid;grid-template-columns:1fr 1fr;gap:8px">
+<button id="saveFarmerRecord" class="primary" type="button">保存本次测产</button>
+<button id="saveAndNextFarmer" type="button">保存并新增下一户</button>
+</div>
 </div>
 
 <div class="card legacy-data-card">
@@ -219,7 +224,7 @@ input,select{border:1px solid #d8e0d9;border-radius:9px;padding:10px;background:
 <button id="calcNow" class="primary" type="button">立即计算</button>
 </div>
 <div id="results" style="margin-top:10px"></div>
-<button id="saveFarmerRecord" class="primary" type="button" style="width:100%;margin-top:12px">保存本次测产</button>
+
 </div>
 
 <div class="card">
@@ -2608,7 +2613,18 @@ document.getElementById("createSumFormula").onclick=function(){
 document.getElementById("calcNow").onclick=function(){
   renderResults();
 };
-document.getElementById("saveFarmerRecord").onclick=function(){
+function startNewFarmer(){
+  ensureStateExtras(state);
+  state.formData.farmer="";
+  var g=current();
+  if(!g.values)g.values={};
+  Object.keys(g.values).forEach(function(key){g.values[key]="";});
+  save();
+  renderAll();
+  var farmer=document.getElementById("farmerInput");
+  if(farmer){farmer.focus();farmer.scrollIntoView({behavior:"smooth",block:"center"});}
+}
+function saveCurrentFarmer(next){
   var rec=snapshotCurrentRecord();
   if(!rec)return;
   state.records.push(rec);
@@ -2618,8 +2634,14 @@ document.getElementById("saveFarmerRecord").onclick=function(){
   state.formData.village=rec.village;
   state.formData.farmer=rec.farmer;
   save();
-  renderSavedRecords();
-  alert("已保存为第 "+rec.recordNo+" 号测产记录。");
+  if(next){startNewFarmer();}
+  else{renderSavedRecords();alert("已保存为第 "+rec.recordNo+" 号测产记录。");}
+}
+document.getElementById("saveFarmerRecord").onclick=function(){saveCurrentFarmer(false);};
+document.getElementById("saveAndNextFarmer").onclick=function(){saveCurrentFarmer(true);};
+document.getElementById("newFarmer").onclick=function(){
+  if(!confirm("开始新农户？将清空当前公式输入数据和农户姓名，已保存的记录不受影响。未保存的数据将丢失。"))return;
+  startNewFarmer();
 };
 
 state=load();
