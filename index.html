@@ -2040,15 +2040,10 @@ function snapshotCurrentRecord(){
   for(var i=0;i<resultFormulas.length;i++){
     var f=resultFormulas[i];
     var problem=formulaProblem(f,g);
-    if(problem){
-      alert(f.name+"："+problem);
-      return null;
-    }
-    var v=evalFormula(f,g.values||{},{});
-    if(v===null){
-      alert(f.name+" 暂时无法计算，请检查数据。");
-      return null;
-    }
+    // 未填写完整的公式不阻止保存其他测产数据。
+    // 仅保存能够正常计算的结果，所有原始输入值仍单独保存。
+    var v=problem?null:evalFormula(f,g.values||{},{});
+    if(v===null)continue;
     results.push({
       formulaId:f.id,
       name:f.name,
@@ -2635,7 +2630,7 @@ function saveCurrentFarmer(next){
   state.formData.farmer=rec.farmer;
   save();
   if(next){startNewFarmer();}
-  else{renderSavedRecords();alert("已保存为第 "+rec.recordNo+" 号测产记录。");}
+  else{renderSavedRecords();alert("已保存为第 "+rec.recordNo+" 号测产记录。未填写的公式已跳过，已输入的数据正常保存。");}
 }
 document.getElementById("saveFarmerRecord").onclick=function(){saveCurrentFarmer(false);};
 document.getElementById("saveAndNextFarmer").onclick=function(){saveCurrentFarmer(true);};
